@@ -17,14 +17,18 @@
 来源：`eval_vlm.py / main`、`model_vlm.py / image2tensor`。
 
 ```python
-# 统一为 RGB 三通道，随后交给与视觉编码器配套的 processor。
-image = Image.open(image_path).convert('RGB')
+ # 读取图片并统一为 RGB 三通道，以匹配视觉编码器输入
+            image_path = os.path.join(args.image_dir, image_file)
+            image = Image.open(image_path).convert('RGB')
 
-pixel_values = {
-    # k 是字典键，v 是对应的张量；将张量移到模型所在设备。
-    k: v.to(args.device)
-    for k, v in MiniMindVLM.image2tensor(image, preprocess).items()
-}
+            # 将图片预处理为张量，并移动到模型所在设备（如 GPU）。
+            pixel_values = {
+                # k 是键, v 是值(张量)，v.to(args.device) 将张量移动到指定设备（如 GPU 或 CPU）。
+                # 移到模型所在设备
+                k: v.to(args.device)
+                # 调用 MiniMindVLM.image2tensor 方法，将图像和预处理器传入，返回一个字典，包含图像张量 v
+                for k, v in MiniMindVLM.image2tensor(image, preprocess).items()
+            }
 ```
 
 `image2tensor` 内部实际调用 processor：

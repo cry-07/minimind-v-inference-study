@@ -61,7 +61,7 @@ inputs = tokenizer(inputs_text, return_tensors="pt", truncation=True).to(args.de
 
 #### 与文字张量融合：
 
-在 `model_vlm.py` 中，`hidden_states` 开始时是词嵌入向量，但包含了 64 个用于占位、尚未包含图像内容的嵌入向量，用于给图片向量占位
+在 `model_vlm.py` 中，`hidden_states` 开始时是词嵌入向量，但包含了 64 个用于占位、尚未包含图像内容的嵌入向量
 
 随后在如下代码作用下完成对 `vision_tensors` （视觉向量）和 `hidden_states` （词嵌入向量）的合并
 

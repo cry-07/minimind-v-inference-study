@@ -50,8 +50,6 @@ messages = [
 ]
 ```
 
-本次文本 ID 为 **`[1,93]`**，其中有 64 个 ID 为 12 的图片占位符，其余 29 个位置包括问题和模板标记。这里的 `messages` 是本地对话模板输入，不代表向外部接口发送请求。
-
 #### 进行文本分词：
 
 得到 `messages` 后，调用分词器 `tokenizer` 将 `messages` 编码为 token ID ，并转化为 Pytorch 张量 `inputs` 

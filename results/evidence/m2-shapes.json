@@ -1,0 +1,366 @@
+{
+  "status": "completed",
+  "events": [
+    {
+      "name": "image.pixel_values",
+      "shape": [
+        1,
+        3,
+        256,
+        256
+      ],
+      "dtype": "torch.float32",
+      "device": "cuda:0"
+    },
+    {
+      "name": "text.input_ids",
+      "shape": [
+        1,
+        93
+      ],
+      "dtype": "torch.int64",
+      "device": "cuda:0"
+    },
+    {
+      "name": "text.attention_mask",
+      "shape": [
+        1,
+        93
+      ],
+      "dtype": "torch.int64",
+      "device": "cuda:0"
+    },
+    {
+      "name": "forward",
+      "input_length": 93,
+      "past_length": 0
+    },
+    {
+      "name": "text.embeddings",
+      "shape": [
+        1,
+        93,
+        768
+      ],
+      "dtype": "torch.float16",
+      "device": "cuda:0"
+    },
+    {
+      "name": "vision.last_hidden_state",
+      "shape": [
+        1,
+        64,
+        768
+      ],
+      "dtype": "torch.float16",
+      "device": "cuda:0"
+    },
+    {
+      "name": "vision.projected",
+      "shape": [
+        1,
+        64,
+        768
+      ],
+      "dtype": "torch.float16",
+      "device": "cuda:0"
+    },
+    {
+      "name": "merge.before",
+      "shape": [
+        1,
+        93,
+        768
+      ],
+      "dtype": "torch.float16",
+      "device": "cuda:0"
+    },
+    {
+      "name": "merge.after",
+      "shape": [
+        1,
+        93,
+        768
+      ],
+      "dtype": "torch.float16",
+      "device": "cuda:0"
+    },
+    {
+      "name": "transformer.layer0.input",
+      "shape": [
+        1,
+        93,
+        768
+      ],
+      "dtype": "torch.float16",
+      "device": "cuda:0"
+    },
+    {
+      "name": "language.logits",
+      "shape": [
+        1,
+        93,
+        6400
+      ],
+      "dtype": "torch.float16",
+      "device": "cuda:0"
+    },
+    {
+      "name": "forward",
+      "input_length": 1,
+      "past_length": 93
+    },
+    {
+      "name": "text.embeddings",
+      "shape": [
+        1,
+        1,
+        768
+      ],
+      "dtype": "torch.float16",
+      "device": "cuda:0"
+    },
+    {
+      "name": "transformer.layer0.input",
+      "shape": [
+        1,
+        1,
+        768
+      ],
+      "dtype": "torch.float16",
+      "device": "cuda:0"
+    },
+    {
+      "name": "language.logits",
+      "shape": [
+        1,
+        1,
+        6400
+      ],
+      "dtype": "torch.float16",
+      "device": "cuda:0"
+    }
+  ],
+  "image": "<PROJECT_ROOT>\\vendor\\minimind-v\\dataset\\eval_images\\image-01-golden-dog-balloons.jpg",
+  "upstream_commit": "041d528e037a8a373c3c8aa7278a3ba3bd26b6dc",
+  "upstream_diff": "diff --git a/eval_vlm.py b/eval_vlm.py\nindex 2089b03..58041a4 100644\n--- a/eval_vlm.py\n+++ b/eval_vlm.py\n@@ -19,7 +19,10 @@ def init_model(args):\n             VLMConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers, use_moe=bool(args.use_moe)),\n             vision_model_path=\"./model/siglip2-base-p32-256-ve\"\n         )\n+\n+        # 加载模型权重时，这里的 ckp 就是模型权重文件：./out/sft_vlm_768.pth\n         state_dict = torch.load(ckp, map_location=args.device)\n+        \n         model.load_state_dict({k: v for k, v in state_dict.items() if 'mask' not in k}, strict=False)\n     else:\n         model = AutoModelForCausalLM.from_pretrained(args.load_from, trust_remote_code=True)\n@@ -53,13 +56,38 @@ def main():\n     prompt = \"<image>\\n请描述这张图中的主要物体和场景。\"\n     # prompt = \"<image>\\nPlease illustrate the image through your words.\"\n     for image_file in sorted(os.listdir(args.image_dir)):\n+        # 如果图片文件名以 .png、.jpg、.jpeg 或 .bmp 结尾，则进行处理\n+        # 不然 就没有 pixel_values\n         if image_file.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):\n             setup_seed(random.randint(1, 31415926))\n+\n+            # 读取图片并统一为 RGB 三通道，以匹配视觉编码器输入\n             image_path = os.path.join(args.image_dir, image_file)\n             image = Image.open(image_path).convert('RGB')\n-            pixel_values = {k: v.to(args.device) for k, v in MiniMindVLM.image2tensor(image, preprocess).items()}\n+\n+            # 将图片预处理为张量，并移动到模型所在设备（如 GPU）。\n+            pixel_values = {\n+                # k 是键, v 是值(张量)，v.to(args.device) 将张量移动到指定设备（如 GPU 或 CPU）。\n+                # 移到模型所在设备\n+                k: v.to(args.device)\n+                # 调用 MiniMindVLM.image2tensor 方法，将图像和预处理器传入，返回一个字典，包含图像张量 v\n+                for k, v in MiniMindVLM.image2tensor(image, preprocess).items()\n+            }\n             \n-            messages = [{\"role\": \"user\", \"content\": prompt.replace('<image>', model.config.image_special_token * model.config.image_token_len)}]\n+            # messages 是对话消息列表，遵循 OpenAI 接口，有以下格式：\n+            # messages = [\n+            #    {\"role\": \"user\", \"content\": \"...\"}\n+            #]\n+            messages = [\n+                # <image> 是占位符，表示图像位置\n+                # 一共拼接 64 个占位符\n+                {\"role\": \"user\", \"content\": \n+                 prompt.replace('<image>', \n+                                model.config.image_special_token * model.config.image_token_len)\n+                }\n+            ]\n+\n+            # 将对话消息 messages 编码为 token ID ,并将其转换为 PyTorch 张量，移动到模型所在设备\n             inputs_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, open_thinking=bool(args.open_thinking))\n             inputs = tokenizer(inputs_text, return_tensors=\"pt\", truncation=True).to(args.device)\n             \n@@ -67,6 +95,9 @@ def main():\n             print(f\"💬: {repr(prompt)}\")\n             print('🤖: ', end='')\n             st = time.time()\n+\n+            # 这里的 Model 是 MiniMindVLM 或 AutoModelForCausalLM 的实例\n+            # generate 方法用于生成文本，传入输入的 token ID、注意力掩码、最大生成长度、采样参数等\n             generated_ids = model.generate(\n                 inputs=inputs[\"input_ids\"], attention_mask=inputs[\"attention_mask\"],\n                 max_new_tokens=args.max_new_tokens, do_sample=True, streamer=streamer,\ndiff --git a/model/model_vlm.py b/model/model_vlm.py\nindex d35e257..5f2d994 100644\n--- a/model/model_vlm.py\n+++ b/model/model_vlm.py\n@@ -109,22 +109,40 @@ class MiniMindVLM(MiniMindForCausalLM):\n         past_key_values = past_key_values or [None] * len(self.model.layers)\n         start_pos = past_key_values[0][0].shape[1] if past_key_values[0] is not None else 0\n \n+        # 词元嵌入，把输入的 token ID 转换为嵌入向量，形状 (batch, seq_len, hidden_size(嵌入向量的维数))\n         hidden_states = self.model.dropout(self.model.embed_tokens(input_ids))\n \n+        # 则将图像张量投影到语言模型的隐藏空间，并将其插入到隐藏状态中\n+        # pixel_values is not None 表示输入中包含图像张量\n+        # start_pos == 0 表示这是序列的开头\n         if pixel_values is not None and start_pos == 0:\n             if hasattr(pixel_values, 'keys'):\n                 sample_val = next(iter(pixel_values.values()))\n+                # 如果 sample_val 的维度是 5，说明这是多个输入(多了一个 batch_size)\n                 if sample_val.ndim == 5:\n                     bs, num = sample_val.shape[:2]\n                     vision_tensors = self.vision_proj(MiniMindVLM.get_image_embeddings({k: v.flatten(0, 1) for k, v in pixel_values.items()}, self.vision_encoder)).view(bs, num, self.config.image_token_len, -1)\n+                # 代表单个图片，有四个维度\n                 else:\n-                    vision_tensors = self.vision_proj(MiniMindVLM.get_image_embeddings(pixel_values, self.vision_encoder))\n+                    # get_image_embeddings(...)：用 SigLIP 视觉编码器提取图片特征\n+                    # vision_proj(...)：经过 LayerNorm → Linear → GELU → Linear，把视觉特征转换为张量\n+                    vision_tensors = self.vision_proj(\n+                        MiniMindVLM.get_image_embeddings(pixel_values, self.vision_encoder)\n+                    )\n             else:\n                 if len(pixel_values.shape) == 6:\n                     pixel_values = pixel_values.squeeze(2)\n                 bs, num, c, im_h, im_w = pixel_values.shape\n                 vision_tensors = torch.stack([self.vision_proj(MiniMindVLM.get_image_embeddings(pixel_values[:, i, :, :, :], self.vision_encoder)) for i in range(num)], dim=1)\n-            hidden_states = self.count_vision_proj(tokens=input_ids, h=hidden_states, vision_tensors=vision_tensors, seqlen=input_ids.shape[1])\n+            \n+            # 替换前：[对话前缀嵌入][64 个占位符嵌入][问题嵌入]\n+            # 替换后：[对话前缀嵌入][64 个视觉向量  ][问题嵌入]\n+            hidden_states = self.count_vision_proj(\n+                tokens=input_ids, \n+                h=hidden_states, \n+                vision_tensors=vision_tensors, \n+                seqlen=input_ids.shape[1]\n+            )\n \n         # Recompute RoPE buffers lost during meta-device init (transformers>=5.x)\n         if self.model.freqs_cos[0, 0] == 0:\n",
+  "image_sha256": "c6d29270fe4863cb96c34d9c9eb1e91ee24bea10a1a9eb9294f1ad280dbe29f8",
+  "script_sha256": "2641388f3491ea3dc951fa61287dda48b396d143d700080f227b5b3180a31ecc",
+  "python": "3.12.14 | packaged by Anaconda, Inc. | (main, Aug 27 2026, 14:37:13) [MSC v.1942 64 bit (AMD64)]",
+  "torch": "2.13.0+cu130",
+  "transformers": "4.57.6",
+  "cuda_build": "13.0",
+  "gpu": "NVIDIA GeForce RTX 5060 Laptop GPU",
+  "generation": {
+    "seed": 42,
+    "do_sample": false,
+    "max_new_tokens": 2,
+    "use_cache": true,
+    "temperature": 1.0,
+    "top_k": 0,
+    "top_p": 1.0,
+    "repetition_penalty": 1.0
+  },
+  "model_config": {
+    "image_special_token": "<|image_pad|>",
+    "image_ids": [
+      12
+    ],
+    "image_hidden_size": 768,
+    "image_token_len": 64,
+    "return_dict": true,
+    "output_hidden_states": false,
+    "torchscript": false,
+    "dtype": null,
+    "pruned_heads": {},
+    "tie_word_embeddings": true,
+    "chunk_size_feed_forward": 0,
+    "is_encoder_decoder": false,
+    "is_decoder": false,
+    "cross_attention_hidden_size": null,
+    "add_cross_attention": false,
+    "tie_encoder_decoder": false,
+    "architectures": null,
+    "finetuning_task": null,
+    "id2label": {
+      "0": "LABEL_0",
+      "1": "LABEL_1"
+    },
+    "label2id": {
+      "LABEL_0": 0,
+      "LABEL_1": 1
+    },
+    "task_specific_params": null,
+    "problem_type": null,
+    "tokenizer_class": null,
+    "prefix": null,
+    "bos_token_id": 1,
+    "pad_token_id": null,
+    "eos_token_id": 2,
+    "sep_token_id": null,
+    "decoder_start_token_id": null,
+    "max_length": 20,
+    "min_length": 0,
+    "do_sample": false,
+    "early_stopping": false,
+    "num_beams": 1,
+    "temperature": 1.0,
+    "top_k": 50,
+    "top_p": 1.0,
+    "typical_p": 1.0,
+    "repetition_penalty": 1.0,
+    "length_penalty": 1.0,
+    "no_repeat_ngram_size": 0,
+    "encoder_no_repeat_ngram_size": 0,
+    "bad_words_ids": null,
+    "num_return_sequences": 1,
+    "output_scores": false,
+    "return_dict_in_generate": false,
+    "forced_bos_token_id": null,
+    "forced_eos_token_id": null,
+    "remove_invalid_values": false,
+    "exponential_decay_length_penalty": null,
+    "suppress_tokens": null,
+    "begin_suppress_tokens": null,
+    "num_beam_groups": 1,
+    "diversity_penalty": 0.0,
+    "_name_or_path": "",
+    "transformers_version": "4.57.6",
+    "tf_legacy_loss": false,
+    "use_bfloat16": false,
+    "hidden_size": 768,
+    "num_hidden_layers": 8,
+    "use_moe": false,
+    "dropout": 0.0,
+    "vocab_size": 6400,
+    "flash_attn": true,
+    "num_attention_heads": 8,
+    "num_key_value_heads": 4,
+    "head_dim": 96,
+    "hidden_act": "silu",
+    "intermediate_size": 2432,
+    "max_position_embeddings": 32768,
+    "rms_norm_eps": 1e-06,
+    "rope_theta": 1000000.0,
+    "inference_rope_scaling": false,
+    "rope_scaling": null,
+    "num_experts": 4,
+    "num_experts_per_tok": 1,
+    "moe_intermediate_size": 2432,
+    "norm_topk_prob": true,
+    "router_aux_loss_coef": 0.0005,
+    "model_type": "minimind-v",
+    "output_attentions": false
+  },
+  "original_image_size": [
+    640,
+    640
+  ],
+  "prompt": "<image>\n请描述这张图中的主要物体和场景。",
+  "formatted_text": "<|im_start|>user\n<|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|><|image_pad|>\n请描述这张图中的主要物体和场景。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+  "input_ids": [
+    [
+      1,
+      832,
+      311,
+      234,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      234,
+      960,
+      1906,
+      394,
+      2370,
+      1107,
+      1042,
+      1331,
+      5999,
+      334,
+      2126,
+      302,
+      2,
+      234,
+      1,
+      1388,
+      570,
+      811,
+      234,
+      25,
+      234,
+      234,
+      26,
+      234,
+      234
+    ]
+  ],
+  "image_marker_id": 12,
+  "image_marker_count": 64,
+  "generated_token_ids": [
+    394,
+    2370
+  ],
+  "generated_text": "这张",
+  "stop_reason": "length_limit"
+}

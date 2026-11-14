@@ -1,0 +1,113 @@
+diff --git a/eval_vlm.py b/eval_vlm.py
+index 2089b03..58041a4 100644
+--- a/eval_vlm.py
++++ b/eval_vlm.py
+@@ -19,7 +19,10 @@ def init_model(args):
+             VLMConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers, use_moe=bool(args.use_moe)),
+             vision_model_path="./model/siglip2-base-p32-256-ve"
+         )
++
++        # 加载模型权重时，这里的 ckp 就是模型权重文件：./out/sft_vlm_768.pth
+         state_dict = torch.load(ckp, map_location=args.device)
++        
+         model.load_state_dict({k: v for k, v in state_dict.items() if 'mask' not in k}, strict=False)
+     else:
+         model = AutoModelForCausalLM.from_pretrained(args.load_from, trust_remote_code=True)
+@@ -53,13 +56,38 @@ def main():
+     prompt = "<image>\n请描述这张图中的主要物体和场景。"
+     # prompt = "<image>\nPlease illustrate the image through your words."
+     for image_file in sorted(os.listdir(args.image_dir)):
++        # 如果图片文件名以 .png、.jpg、.jpeg 或 .bmp 结尾，则进行处理
++        # 不然 就没有 pixel_values
+         if image_file.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+             setup_seed(random.randint(1, 31415926))
++
++            # 读取图片并统一为 RGB 三通道，以匹配视觉编码器输入
+             image_path = os.path.join(args.image_dir, image_file)
+             image = Image.open(image_path).convert('RGB')
+-            pixel_values = {k: v.to(args.device) for k, v in MiniMindVLM.image2tensor(image, preprocess).items()}
++
++            # 将图片预处理为张量，并移动到模型所在设备（如 GPU）。
++            pixel_values = {
++                # k 是键, v 是值(张量)，v.to(args.device) 将张量移动到指定设备（如 GPU 或 CPU）。
++                # 移到模型所在设备
++                k: v.to(args.device)
++                # 调用 MiniMindVLM.image2tensor 方法，将图像和预处理器传入，返回一个字典，包含图像张量 v
++                for k, v in MiniMindVLM.image2tensor(image, preprocess).items()
++            }
+             
+-            messages = [{"role": "user", "content": prompt.replace('<image>', model.config.image_special_token * model.config.image_token_len)}]
++            # messages 是对话消息列表，遵循 OpenAI 接口，有以下格式：
++            # messages = [
++            #    {"role": "user", "content": "..."}
++            #]
++            messages = [
++                # <image> 是占位符，表示图像位置
++                # 一共拼接 64 个占位符
++                {"role": "user", "content": 
++                 prompt.replace('<image>', 
++                                model.config.image_special_token * model.config.image_token_len)
++                }
++            ]
++
++            # 将对话消息 messages 编码为 token ID ,并将其转换为 PyTorch 张量，移动到模型所在设备
+             inputs_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, open_thinking=bool(args.open_thinking))
+             inputs = tokenizer(inputs_text, return_tensors="pt", truncation=True).to(args.device)
+             
+@@ -67,6 +95,9 @@ def main():
+             print(f"💬: {repr(prompt)}")
+             print('🤖: ', end='')
+             st = time.time()
++
++            # 这里的 Model 是 MiniMindVLM 或 AutoModelForCausalLM 的实例
++            # generate 方法用于生成文本，传入输入的 token ID、注意力掩码、最大生成长度、采样参数等
+             generated_ids = model.generate(
+                 inputs=inputs["input_ids"], attention_mask=inputs["attention_mask"],
+                 max_new_tokens=args.max_new_tokens, do_sample=True, streamer=streamer,
+diff --git a/model/model_vlm.py b/model/model_vlm.py
+index d35e257..5f2d994 100644
+--- a/model/model_vlm.py
++++ b/model/model_vlm.py
+@@ -109,22 +109,40 @@ class MiniMindVLM(MiniMindForCausalLM):
+         past_key_values = past_key_values or [None] * len(self.model.layers)
+         start_pos = past_key_values[0][0].shape[1] if past_key_values[0] is not None else 0
+ 
++        # 词元嵌入，把输入的 token ID 转换为嵌入向量，形状 (batch, seq_len, hidden_size(嵌入向量的维数))
+         hidden_states = self.model.dropout(self.model.embed_tokens(input_ids))
+ 
++        # 则将图像张量投影到语言模型的隐藏空间，并将其插入到隐藏状态中
++        # pixel_values is not None 表示输入中包含图像张量
++        # start_pos == 0 表示这是序列的开头
+         if pixel_values is not None and start_pos == 0:
+             if hasattr(pixel_values, 'keys'):
+                 sample_val = next(iter(pixel_values.values()))
++                # 如果 sample_val 的维度是 5，说明这是多个输入(多了一个 batch_size)
+                 if sample_val.ndim == 5:
+                     bs, num = sample_val.shape[:2]
+                     vision_tensors = self.vision_proj(MiniMindVLM.get_image_embeddings({k: v.flatten(0, 1) for k, v in pixel_values.items()}, self.vision_encoder)).view(bs, num, self.config.image_token_len, -1)
++                # 代表单个图片，有四个维度
+                 else:
+-                    vision_tensors = self.vision_proj(MiniMindVLM.get_image_embeddings(pixel_values, self.vision_encoder))
++                    # get_image_embeddings(...)：用 SigLIP 视觉编码器提取图片特征
++                    # vision_proj(...)：经过 LayerNorm → Linear → GELU → Linear，把视觉特征转换为张量
++                    vision_tensors = self.vision_proj(
++                        MiniMindVLM.get_image_embeddings(pixel_values, self.vision_encoder)
++                    )
+             else:
+                 if len(pixel_values.shape) == 6:
+                     pixel_values = pixel_values.squeeze(2)
+                 bs, num, c, im_h, im_w = pixel_values.shape
+                 vision_tensors = torch.stack([self.vision_proj(MiniMindVLM.get_image_embeddings(pixel_values[:, i, :, :, :], self.vision_encoder)) for i in range(num)], dim=1)
+-            hidden_states = self.count_vision_proj(tokens=input_ids, h=hidden_states, vision_tensors=vision_tensors, seqlen=input_ids.shape[1])
++            
++            # 替换前：[对话前缀嵌入][64 个占位符嵌入][问题嵌入]
++            # 替换后：[对话前缀嵌入][64 个视觉向量  ][问题嵌入]
++            hidden_states = self.count_vision_proj(
++                tokens=input_ids, 
++                h=hidden_states, 
++                vision_tensors=vision_tensors, 
++                seqlen=input_ids.shape[1]
++            )
+ 
+         # Recompute RoPE buffers lost during meta-device init (transformers>=5.x)
+         if self.model.freqs_cos[0, 0] == 0:

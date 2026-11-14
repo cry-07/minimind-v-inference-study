@@ -1,0 +1,15 @@
+.venv/
+venv/
+.cache/
+vendor/
+work/
+__pycache__/
+*.pyc
+*.pth
+*.pt
+*.safetensors
+.env
+.env.*
+!.env.example
+# 原始历史证据由本仓库精选；新运行结果留在本地。
+results/raw/

@@ -1,0 +1,14 @@
+Model Params: 65.09M
+[图像]: image-01-golden-dog-balloons.jpg
+python.exe : Traceback (most recent call last):
+所在位置 行:1 字符: 1
++ & '..\..\.venv\python.exe' -u .\eval_vlm.py --load_from model --weigh ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "<PROJECT_ROOT>\vendor\minimind-v\eval_vlm.py", line 80, in <module>
+    main()
+  File "<PROJECT_ROOT>\vendor\minimind-v\eval_vlm.py", line 67, in main
+    print(f"\U0001f4ac: {repr(prompt)}")
+UnicodeEncodeError: 'gbk' codec can't encode character '\U0001f4ac' in position 0: illegal multibyte sequence

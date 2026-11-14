@@ -1,0 +1,30 @@
+[
+  {
+    "original_relative_path": "results/raw/e01-utf8-fixed-run.txt",
+    "published_path": "results/evidence/m1-single-image.txt",
+    "original_sha256": "76f53da675f0da05b8a4be87004ef1cf2f877def136af8613e39528c6022b943",
+    "published_sha256": "45f45d0e608dd08ad6486643d02e31a04568ee5dd0f33c1d24b74b406928e34d",
+    "transformation": "UTF-8/LF normalization and machine path redaction only; measurements and answers unchanged"
+  },
+  {
+    "original_relative_path": "results/raw/e01-first-run.txt",
+    "published_path": "results/evidence/m1-encoding-error.txt",
+    "original_sha256": "cbefafbb529fa448753668f8752974aa1295f85e73548a7ffd50908d530bb528",
+    "published_sha256": "4a610067336953988b855e4f78a1b5b54ee1c765e73b9e379895b77d4dfd2c43",
+    "transformation": "UTF-8/LF normalization and machine path redaction only; measurements and answers unchanged"
+  },
+  {
+    "original_relative_path": "results/raw/environment_2026-11-13_torch_env.txt",
+    "published_path": "results/evidence/gpu-source-env.json",
+    "original_sha256": "635a2c0fe42d14c4afa59bc11c297f801a82245223a574394e2c3a59695c141a",
+    "published_sha256": "42491239c7982672a738b698d032e8d0f0c91c5dd5619f4041b7a87797da82b1",
+    "transformation": "UTF-8/LF normalization and machine path redaction only; measurements and answers unchanged"
+  },
+  {
+    "original_relative_path": "results/raw/m2-shapes-20261113-233039-36b4b251.json",
+    "published_path": "results/evidence/m2-shapes.json",
+    "original_sha256": "479bb49dd2c7899edd35329da59d9e261d0e54acced27fc6d0abfbc9a4b815de",
+    "published_sha256": "585a550aaaeb9c0cf49aeae287277493226b40514a627a2f8ae1e184072ca410",
+    "transformation": "UTF-8/LF normalization and machine path redaction only; measurements and answers unchanged"
+  }
+]
